@@ -11,9 +11,6 @@
         "usernamehw.errorlens",
         // Отступы и переводы строк для src/*.rs и scripts/*.sh.
         "EditorConfig.EditorConfig",
-        // Орфография в комментариях: базовое расширение + русский словарь.
-        "streetsidesoftware.code-spell-checker",
-        "streetsidesoftware.code-spell-checker-russian",
         // Актуальные версии зависимостей в Cargo.toml.
         "serayuzgur.crates",
         // Линт scripts/install-service.sh (нужен бинарник shellcheck).
