@@ -13,8 +13,6 @@
         "EditorConfig.EditorConfig",
         // Актуальные версии зависимостей в Cargo.toml.
         "serayuzgur.crates",
-        // Линт scripts/install-service.sh (нужен бинарник shellcheck).
-        "timonwong.shellcheck",
         // Уже стоят, полезны в этом проекте.
         "davidanson.vscode-markdownlint",
         "mk12.better-git-line-blame",
