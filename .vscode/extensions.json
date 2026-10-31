@@ -1,0 +1,29 @@
+{
+    // Рекомендуемые расширения для работы с cr-tray (Rust + трей KDE).
+    // VSCode предложит их установить при открытии проекта.
+    "recommendations": [
+        // Обязательные: язык и отладчик.
+        "rust-lang.rust-analyzer",
+        "vadimcn.vscode-lldb",
+        // TOML: Cargo.toml / Cargo.lock.
+        "tamasfe.even-better-toml",
+        // Ошибки и предупреждения clippy прямо в строке кода.
+        "usernamehw.errorlens",
+        // Отступы и переводы строк для src/*.rs и scripts/*.sh.
+        "EditorConfig.EditorConfig",
+        // Орфография в комментариях (русский + технические термины).
+        "streetsidesoftware.code-spell-checker",
+        // Актуальные версии зависимостей в Cargo.toml.
+        "serayuzgur.crates",
+        // Линт scripts/install-service.sh (нужен бинарник shellcheck).
+        "timonwong.shellcheck",
+        // Уже стоят, полезны в этом проекте.
+        "davidanson.vscode-markdownlint",
+        "mk12.better-git-line-blame",
+        "vscode-icons-team.vscode-icons"
+    ],
+    "unwantedRecommendations": [
+        // Устаревший RLS: конфликтует с rust-analyzer.
+        "rust-lang.rust"
+    ]
+}

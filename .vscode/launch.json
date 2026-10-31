@@ -1,0 +1,74 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            // Самый удобный для логики: без сети, без ключа, сразу выход
+            "name": "Debug: demo --once",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=cr-tray"
+                ]
+            },
+            "args": [
+                "--demo",
+                "--once"
+            ],
+            "cwd": "${workspaceFolder}",
+            "sourceLanguages": [
+                "rust"
+            ],
+            "env": {
+                "RUST_BACKTRACE": "1"
+            }
+        },
+        {
+            // Полноценный трей в демо-режиме (требует plasmashell + свободный лок)
+            "name": "Debug: demo в трее",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=cr-tray"
+                ]
+            },
+            "args": [
+                "--demo",
+                "--demo-cycle"
+            ],
+            "cwd": "${workspaceFolder}",
+            "sourceLanguages": [
+                "rust"
+            ],
+            "env": {
+                "RUST_BACKTRACE": "1"
+            }
+        },
+        {
+            // Боевой режим с API
+            "name": "Debug: с API",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=cr-tray"
+                ]
+            },
+            "args": [
+                "--interval",
+                "60"
+            ],
+            "cwd": "${workspaceFolder}",
+            "sourceLanguages": [
+                "rust"
+            ],
+            "env": {
+                "CLOSEROUTER_API_KEY": "${env:CLOSEROUTER_API_KEY}"
+            }
+        }
+    ]
+}
