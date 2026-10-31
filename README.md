@@ -51,6 +51,53 @@ export CLOSEROUTER_API_KEY=sk-...
 Один экземпляр на сессию: лок-файл `$XDG_RUNTIME_DIR/cr-tray.lock` не даёт
 запустить второй трей.
 
+## Автозапуск через systemd
+
+Бинарник — в `~/.local/bin`, настройки — в `~/.config/cr-tray` (не в
+`~/.local/bin`: это каталог для исполняемых файлов, а конфиги принято держать
+в XDG-каталоге, и так их не затрёт переустановка бинарника).
+
+```bash
+# 1. бинарник
+install -Dm755 target/release/cr-tray ~/.local/bin/cr-tray
+
+# 2. ключ и настройки: файл с правами 600
+mkdir -p ~/.config/cr-tray
+printf '%s' 'sk-...' > ~/.config/cr-tray/api_key
+chmod 600 ~/.config/cr-tray/api_key
+
+# 3. юнит + запуск
+./scripts/install-service.sh
+```
+
+Скрипт создаёт `~/.config/systemd/user/cr-tray.service` и
+`~/.config/cr-tray/env` (шаблон), делает `daemon-reload` и
+`enable --now`. Проверка и удаление:
+
+```bash
+./scripts/install-service.sh status
+./scripts/install-service.sh uninstall
+```
+
+Юнит привязан к `plasma-workspace.target` (в Plasma 6 он активен в
+systemd-сессии пользователя), поэтому поднимается вместе с рабочим столом и
+перезапускается через 5 с, если трей упал на старте. Ключ сервис берёт из
+`~/.config/cr-tray/api_key` или из `~/.config/cr-tray/env` — переменные твоего
+shell в systemd не попадают.
+
+Прочие настройки в `~/.config/cr-tray/env`, по одной строке `ИМЯ=значение`:
+
+```
+CLOSEROUTER_API_KEY=sk-...   # можно вместо api_key
+CR_PAY_MARKUP=12
+CR_INTERVAL=60
+CR_WARN_BALANCE_RUB=50
+# CR_PAY_RATE=90.22
+```
+
+После правки env: `systemctl --user restart cr-tray`. После обновления
+бинарника — то же самое.
+
 ## Флаги
 
 ```
@@ -112,6 +159,9 @@ CloseRouter
   из `~/.cache/cr-tray/cbr.json`, дата рядом с курсом.
 * **Второй экземпляр отказывается стартовать.** Это норма: один трей на
   сессию. Удалите `$XDG_RUNTIME_DIR/cr-tray.lock`, если процесс уже не жив.
+* **Сервис перезапускается по кругу.** Смотрите
+  `journalctl --user -u cr-tray -n 30`: чаще всего «не задан API-ключ» —
+  значит ключ не попал в `~/.config/cr-tray/api_key` или `env`.
 
 ## Тесты
 
