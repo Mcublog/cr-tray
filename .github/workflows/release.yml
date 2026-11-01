@@ -54,8 +54,13 @@ jobs:
         run: |
           BIN_PATH="target/$TARGET/release/$BIN"
           file "$BIN_PATH"
-          # статическая сборка: ldd должен сказать "not a dynamic executable"
-          ldd "$BIN_PATH" 2>&1 | grep -q "not a dynamic executable"
+          # динамических зависимостей быть не должно; static-pie тоже подходит
+          if readelf -d "$BIN_PATH" 2>/dev/null | grep -q '(NEEDED)'; then
+            echo "бинарь слинкован динамически:" >&2
+            readelf -d "$BIN_PATH" | grep '(NEEDED)' >&2
+            exit 1
+          fi
+          echo "динамических зависимостей нет — ок"
           ls -lh "$BIN_PATH"
           # на теге версия в Cargo.toml должна совпадать с тегом
           if [ "$GITHUB_REF_TYPE" = tag ]; then
