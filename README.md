@@ -18,6 +18,27 @@
 * «Сегодня» — локальные сутки выбранной таймзоны; границы отправляются в API
   полными ISO-датами, потому что API понимает `YYYY-MM-DD` как UTC.
 
+## Готовый бинарь
+
+Статическая сборка (musl) собирается в GitHub Actions и лежит в релизах:
+x86_64 Linux, без внешних зависимостей, работает на Ubuntu 22.04 и новее.
+
+```bash
+mkdir -p ~/.local/bin
+curl -L -o ~/.local/bin/cr-tray \
+  https://github.com/Mcublog/cr-tray/releases/latest/download/cr-tray-x86_64-unknown-linux-musl
+chmod +x ~/.local/bin/cr-tray
+cr-tray --demo --once     # проверка: печатает снимок на фейковых данных
+```
+
+Рядом с бинарём в релизе лежит `*.sha256` для проверки контрольной суммы.
+Файл из artifact'а Actions (а не из релиза) приходит без бита исполнения —
+после скачивания нужен `chmod +x`.
+
+Релиз собирает `.github/workflows/release.yml`: по пушу тега `v*` (ручной
+запуск даёт только artifact, без релиза). Версия в `Cargo.toml` должна
+совпадать с тегом — `v0.1.0` для `version = "0.1.0"`, иначе сборка упадёт.
+
 ## Сборка
 
 ```bash

@@ -1,0 +1,96 @@
+name: release
+
+# Сборка статического бинаря (musl) и публикация релиза.
+# Запуск: пуш тега v* — релиз; ручной запуск — только artifact.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  TARGET: x86_64-unknown-linux-musl
+  BIN: cr-tray
+  CARGO_TERM_COLOR: always
+  # Пакет musl-tools даёт musl-gcc, а не x86_64-linux-musl-gcc: без этих
+  # переменных cc-rs может взять системный gcc и подмешать glibc.
+  CC_x86_64_unknown_linux_musl: musl-gcc
+  CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+
+jobs:
+  build:
+    name: build ${{ github.ref_name }}
+    runs-on: ubuntu-latest
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.TARGET }}
+
+      - name: musl
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends musl-tools
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ env.TARGET }}
+
+      - name: build
+        run: cargo build --release --locked --target "$TARGET"
+
+      - name: smoke test
+        run: ./target/$TARGET/release/$BIN --demo --once
+
+      - name: checks
+        run: |
+          BIN_PATH="target/$TARGET/release/$BIN"
+          file "$BIN_PATH"
+          # статическая сборка: ldd должен сказать "not a dynamic executable"
+          ldd "$BIN_PATH" 2>&1 | grep -q "not a dynamic executable"
+          ls -lh "$BIN_PATH"
+          # на теге версия в Cargo.toml должна совпадать с тегом
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            VERSION="v$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+            if [ "$VERSION" != "$GITHUB_REF_NAME" ]; then
+              echo "версия в Cargo.toml ($VERSION) не совпадает с тегом ($GITHUB_REF_NAME)" >&2
+              exit 1
+            fi
+          fi
+
+      - name: package
+        run: |
+          mkdir -p dist
+          cp "target/$TARGET/release/$BIN" "dist/$BIN-$TARGET"
+          cd dist
+          sha256sum "$BIN-$TARGET" > "$BIN-$TARGET.sha256"
+          cat "$BIN-$TARGET.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BIN }}-${{ env.TARGET }}
+          path: dist/*
+          if-no-files-found: error
+
+      - name: release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            # повторный запуск на том же теге: обновляем ассеты
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes \
+              --verify-tag
+          fi
