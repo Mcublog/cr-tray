@@ -6,6 +6,7 @@ mod clock;
 mod format;
 mod icon;
 mod lock;
+mod mail;
 mod poll;
 mod source;
 mod state;
@@ -30,6 +31,7 @@ cr-tray — расход CloseRouter за сегодня в трее KDE Plasma
 Использование:
   cr-tray [--once] [--api-key KEY] [--timezone TZ] [--interval SEC]
           [--pay-rate RUB] [--pay-markup PCT]
+          [--mail-config PATH] [--mail-interval SEC] [--no-mail]
   cr-tray --demo [--demo-state ok|warn|error] [--demo-cycle] [--dump-icons DIR]
 
 Флаги:
@@ -41,6 +43,9 @@ cr-tray — расход CloseRouter за сегодня в трее KDE Plasma
   --pay-markup <PCT> наценка к курсу ЦБ в процентах (по умолчанию 12)
   --warn-balance-rub <RUB>  жёлтая иконка при балансе ниже порога
                              (по умолчанию 50, 0 — выключить)
+  --mail-config <PATH>      конфиг почты (по умолчанию ~/.config/cr-tray/mail.json)
+  --mail-interval <SEC>     период опроса IMAP, секунды (по умолчанию 300)
+  --no-mail                 не опрашивать почту
   --demo             фейковые данные, без сети и ключа
   --demo-state <S>   фиксированное состояние иконки: ok, warn, error
   --demo-cycle       переключать состояния каждые 5 секунд
@@ -52,8 +57,11 @@ cr-tray — расход CloseRouter за сегодня в трее KDE Plasma
   CR_PAY_RATE, CR_PAY_MARKUP — курс списания, флаги приоритетнее
   CR_INTERVAL — период опроса, секунды
   CR_WARN_BALANCE_RUB — порог «мало средств», ₽
+  CR_MAIL_CONFIG — путь к конфигу почты
+  CR_MAIL_INTERVAL — период опроса IMAP, секунды
 
 Ключ также читается из ~/.config/cr-tray/api_key.
+Почта — из ~/.config/cr-tray/mail.json (см. README).
 ";
 
 struct Args {
@@ -73,6 +81,12 @@ struct Args {
     pay_markup: f64,
     /// Порог «мало средств», ₽; 0 — не предупреждать.
     warn_rub: f64,
+    /// Явный путь к конфигу почты.
+    mail_config: Option<PathBuf>,
+    /// Период опроса почты; `None` — из конфига или по умолчанию.
+    mail_interval: Option<u64>,
+    /// Полностью выключить почту.
+    no_mail: bool,
 }
 
 /// Минимальный период опроса: чаще незачем, API можно и притормозить.
@@ -99,7 +113,9 @@ fn parse_args() -> Result<Args, String> {
             .and_then(|v| v.parse().ok())
             .unwrap_or(60)
             .max(MIN_INTERVAL),
-        pay_rate: std::env::var("CR_PAY_RATE").ok().and_then(|v| v.parse().ok()),
+        pay_rate: std::env::var("CR_PAY_RATE")
+            .ok()
+            .and_then(|v| v.parse().ok()),
         pay_markup: std::env::var("CR_PAY_MARKUP")
             .ok()
             .and_then(|v| v.parse().ok())
@@ -108,6 +124,11 @@ fn parse_args() -> Result<Args, String> {
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(state::DEFAULT_WARN_BALANCE_RUB),
+        mail_config: std::env::var_os("CR_MAIL_CONFIG").map(PathBuf::from),
+        mail_interval: std::env::var("CR_MAIL_INTERVAL")
+            .ok()
+            .and_then(|v| v.parse().ok()),
+        no_mail: false,
     };
 
     let mut it = std::env::args().skip(1);
@@ -168,6 +189,16 @@ fn parse_args() -> Result<Args, String> {
                     format!("--warn-balance-rub: ожидается число рублей, получено {v}")
                 })?;
             }
+            "--mail-config" => {
+                args.mail_config = Some(PathBuf::from(value("--mail-config")?));
+            }
+            "--mail-interval" => {
+                let v = value("--mail-interval")?;
+                args.mail_interval = Some(v.parse::<u64>().map_err(|_| {
+                    format!("--mail-interval: ожидается число секунд, получено {v}")
+                })?);
+            }
+            "--no-mail" => args.no_mail = true,
             "-h" | "--help" => {
                 print!("{HELP}");
                 std::process::exit(0);
@@ -208,12 +239,26 @@ fn source_for(args: &Args) -> Result<Box<dyn Source>, String> {
         "не задан API-ключ: укажите --api-key, CLOSEROUTER_API_KEY или ~/.config/cr-tray/api_key"
             .to_string()
     })?;
+
+    let mail = if args.no_mail {
+        None
+    } else {
+        match mail::load(args.mail_config.as_deref()) {
+            Ok(Some(config)) if !config.accounts.is_empty() => {
+                Some(mail::Checker::new(config, args.mail_interval))
+            }
+            Ok(_) => None,
+            Err(e) => return Err(format!("почта: {e}")),
+        }
+    };
+
     Ok(Box::new(source::ApiSource::new(
         key,
         args.timezone.clone(),
         args.pay_rate,
         args.pay_markup,
         args.warn_rub,
+        mail,
     )))
 }
 
@@ -303,11 +348,6 @@ fn main() -> ExitCode {
         }
     }
 
-    poll::run(
-        src,
-        handle,
-        Duration::from_secs(args.interval),
-        wake_rx,
-    );
+    poll::run(src, handle, Duration::from_secs(args.interval), wake_rx);
     ExitCode::SUCCESS
 }

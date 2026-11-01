@@ -64,6 +64,10 @@ write_env_template() {
 # CR_INTERVAL=60
 # CR_WARN_BALANCE_RUB=50
 # CR_PAY_RATE=90.22
+#
+# Почта (Mail.ru / Яндекс) — пароли приложений в отдельном файле, см. README:
+# CR_MAIL_CONFIG=/home/user/.config/cr-tray/mail.json
+# CR_MAIL_INTERVAL=300
 EOF
     chmod 600 "$ENV_FILE"
     say "создан шаблон настроек: $ENV_FILE"

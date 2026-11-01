@@ -27,6 +27,19 @@ impl fmt::Display for Status {
     }
 }
 
+/// Непрочитанные письма в одном ящике.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MailboxCount {
+    /// Подпись ящика: имя из конфига или email.
+    pub name: String,
+    /// Непрочитанных писем; `None` — получить не удалось.
+    pub unread: Option<u64>,
+    /// Ошибка опроса ящика, если была.
+    pub error: Option<String>,
+    /// Куда переходить по клику в меню.
+    pub url: Option<String>,
+}
+
 /// Снимок состояния счёта, который отображает трей.
 #[derive(Debug, Clone)]
 pub struct Snapshot {
@@ -46,6 +59,8 @@ pub struct Snapshot {
     pub updated: String,
     pub status: Status,
     pub error: Option<String>,
+    /// Непрочитанные письма по всем настроенным ящикам.
+    pub mailboxes: Vec<MailboxCount>,
 }
 
 /// Наценка CloseRouter к курсу ЦБ по умолчанию, процентов.
@@ -85,6 +100,7 @@ impl Snapshot {
             updated: "—".into(),
             status,
             error,
+            mailboxes: Vec::new(),
         }
     }
 
@@ -112,8 +128,46 @@ impl Snapshot {
                 Status::Error => Some("нет связи с api.closerouter.dev".into()),
                 _ => None,
             },
+            mailboxes: demo_mailboxes(),
         }
     }
+
+    /// Всего непрочитанных писем; `None`-ящики не учитываются.
+    pub fn unread_total(&self) -> u64 {
+        self.mailboxes
+            .iter()
+            .filter_map(|mailbox| mailbox.unread)
+            .fold(0, u64::saturating_add)
+    }
+
+    /// Есть ли хоть одно непрочитанное письмо.
+    pub fn has_unread(&self) -> bool {
+        self.unread_total() > 0
+    }
+}
+
+/// Демонстрационные ящики: список любой длины, количество не фиксировано.
+fn demo_mailboxes() -> Vec<MailboxCount> {
+    vec![
+        MailboxCount {
+            name: "me@mail.ru".into(),
+            unread: Some(3),
+            error: None,
+            url: Some("https://e.mail.ru/inbox/".into()),
+        },
+        MailboxCount {
+            name: "me@yandex.ru".into(),
+            unread: Some(12),
+            error: None,
+            url: Some("https://mail.yandex.ru/".into()),
+        },
+        MailboxCount {
+            name: "Архив".into(),
+            unread: Some(0),
+            error: None,
+            url: None,
+        },
+    ]
 }
 
 #[cfg(test)]
@@ -132,7 +186,8 @@ mod tests {
     }
 
     #[test]
-    fn demo_uses_pay_rate_for_rubles() {        let s = Snapshot::demo_with(Status::Ok, None, DEFAULT_MARKUP_PERCENT);
+    fn demo_uses_pay_rate_for_rubles() {
+        let s = Snapshot::demo_with(Status::Ok, None, DEFAULT_MARKUP_PERCENT);
         assert!((s.pay_rate - 80.5573 * 1.12).abs() < 1e-9);
         assert!((s.spent_rub - s.spent_usd * s.pay_rate).abs() < 1e-9);
         assert_eq!(s.pay_markup, Some(12.0));
@@ -149,5 +204,39 @@ mod tests {
     fn zero_threshold_disables_warning() {
         assert_eq!(balance_status(0.0, 0.0), Status::Ok);
         assert_eq!(balance_status(1.0, 0.0), Status::Ok);
+    }
+
+    #[test]
+    fn unread_total_sums_any_number_of_mailboxes() {
+        let mut snapshot = Snapshot::demo_with(Status::Ok, None, DEFAULT_MARKUP_PERCENT);
+        assert_eq!(snapshot.mailboxes.len(), 3);
+        assert_eq!(snapshot.unread_total(), 15);
+        assert!(snapshot.has_unread());
+
+        snapshot.mailboxes = Vec::new();
+        assert_eq!(snapshot.unread_total(), 0);
+        assert!(!snapshot.has_unread());
+
+        snapshot.mailboxes = vec![
+            MailboxCount {
+                name: "a".into(),
+                unread: Some(1),
+                error: None,
+                url: None,
+            },
+            MailboxCount {
+                name: "b".into(),
+                unread: None,
+                error: Some("ошибка".into()),
+                url: None,
+            },
+            MailboxCount {
+                name: "c".into(),
+                unread: Some(2),
+                error: None,
+                url: None,
+            },
+        ];
+        assert_eq!(snapshot.unread_total(), 3);
     }
 }

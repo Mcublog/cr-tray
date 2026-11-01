@@ -1,6 +1,6 @@
 //! Фоновый опрос API.
 //!
-//! Поток спит `interval`, просыпается по таймеру или по сигналу «Обновить»
+//! Поток спит `interval`, просыпается по таймеру или по ручному обновлению
 //! из меню, забирает снимок и обновляет трей. При ошибках пауза растёт
 //! 60 → 120 → 240 → 300 с, при успехе возвращается к `interval`.
 
@@ -20,7 +20,7 @@ pub const MAX_BACKOFF: Duration = Duration::from_secs(300);
 /// Зачем поток опроса разбудили.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Wake {
-    /// «Обновить» в меню: забрать данные вне очереди.
+    /// Ручное обновление в меню: забрать данные вне очереди, включая почту.
     Refresh,
     /// «Выход» в меню: закончить работу штатно, чтобы снять лок-файл.
     Quit,
@@ -44,14 +44,18 @@ pub fn run(
 ) {
     let mut delay = interval;
     loop {
-        match wake.recv_timeout(delay) {
-            Ok(Wake::Refresh) => {}
+        let manual = match wake.recv_timeout(delay) {
+            Ok(Wake::Refresh) => true,
             Ok(Wake::Quit) => return,
-            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Timeout) => false,
             Err(RecvTimeoutError::Disconnected) => return,
-        }
+        };
 
-        let snap = src.snapshot();
+        let snap = if manual {
+            src.refresh()
+        } else {
+            src.snapshot()
+        };
         let ok = snap.status != Status::Error;
         let status = snap.status;
         let updated = snap.updated.clone();

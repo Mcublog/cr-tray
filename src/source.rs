@@ -8,11 +8,17 @@ use std::sync::Mutex;
 use crate::api::{self, Credits, Usage};
 use crate::cbr::{self, Rate};
 use crate::clock;
+use crate::mail;
 use crate::state::{balance_status, resolve_pay_rate, Snapshot, Status};
 
 /// Что-то, что умеет отдать текущий снимок состояния счёта.
 pub trait Source: Send + Sync {
     fn snapshot(&self) -> Snapshot;
+
+    /// Ручное обновление из меню: по умолчанию то же, что и обычный опрос.
+    fn refresh(&self) -> Snapshot {
+        self.snapshot()
+    }
 }
 
 /// Заглушка на фейковых данных (этапы 1–2).
@@ -51,6 +57,8 @@ pub struct ApiSource {
     markup: f64,
     /// Порог «мало средств», ₽; 0 — не предупреждать.
     warn_rub: f64,
+    /// Почта; `None` — функция выключена.
+    mail: Option<mail::Checker>,
     /// Последний удачный снимок: при ошибке показываем его же, но с ошибкой.
     last: Mutex<Option<Snapshot>>,
 }
@@ -62,6 +70,7 @@ impl ApiSource {
         fixed_rate: Option<f64>,
         markup: f64,
         warn_rub: f64,
+        mail: Option<mail::Checker>,
     ) -> Self {
         Self {
             api: api::Client::new(key),
@@ -70,11 +79,12 @@ impl ApiSource {
             fixed_rate,
             markup,
             warn_rub,
+            mail,
             last: Mutex::new(None),
         }
     }
 
-    fn build(&self) -> Result<Snapshot, String> {
+    fn build_billing(&self) -> Result<Snapshot, String> {
         let bounds = clock::day_bounds(&self.tz, jiff::Timestamp::now())?;
 
         // Два независимых запроса — параллельно, чтобы опрос занимал один таймаут.
@@ -107,10 +117,26 @@ fn join<T>(result: std::thread::Result<Result<T, api::ApiError>>) -> Result<T, S
     }
 }
 
-impl Source for ApiSource {
-    fn snapshot(&self) -> Snapshot {
-        match self.build() {
-            Ok(snap) => {
+impl ApiSource {
+    fn snapshot_inner(&self, force_mail: bool) -> Snapshot {
+        let billing = self.build_billing();
+        // Почта опрашивается независимо от биллинга: её ошибка не должна
+        // делать иконку расхода красной.
+        let mailboxes = self
+            .mail
+            .as_ref()
+            .map(|mail| {
+                if force_mail {
+                    mail.check_now()
+                } else {
+                    mail.check()
+                }
+            })
+            .unwrap_or_default();
+
+        match billing {
+            Ok(mut snap) => {
+                snap.mailboxes = mailboxes;
                 *self.last.lock().unwrap() = Some(snap.clone());
                 snap
             }
@@ -121,12 +147,27 @@ impl Source for ApiSource {
                     Some(prev) => {
                         prev.status = Status::Error;
                         prev.error = Some(e);
+                        prev.mailboxes = mailboxes;
                         prev.clone()
                     }
-                    None => Snapshot::empty(Status::Error, Some(e)),
+                    None => {
+                        let mut snap = Snapshot::empty(Status::Error, Some(e));
+                        snap.mailboxes = mailboxes;
+                        snap
+                    }
                 }
             }
         }
+    }
+}
+
+impl Source for ApiSource {
+    fn snapshot(&self) -> Snapshot {
+        self.snapshot_inner(false)
+    }
+
+    fn refresh(&self) -> Snapshot {
+        self.snapshot_inner(true)
     }
 }
 
@@ -156,6 +197,7 @@ fn build_snapshot(
         updated: updated.to_string(),
         status: balance_status(balance_rub, warn_rub),
         error: None,
+        mailboxes: Vec::new(),
     }
 }
 

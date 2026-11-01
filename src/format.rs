@@ -88,6 +88,16 @@ pub fn cbr_rate(rate: f64, date: &str) -> String {
     }
 }
 
+/// Строка ящика для меню: `me@mail.ru: 3`, при сбое — `· ошибка`.
+pub fn mail_line(mailbox: &crate::state::MailboxCount) -> String {
+    match (mailbox.unread, mailbox.error.is_some()) {
+        (Some(unread), false) => format!("{}: {unread}", mailbox.name),
+        (Some(unread), true) => format!("{}: {unread} · ошибка", mailbox.name),
+        (None, true) => format!("{}: — · ошибка", mailbox.name),
+        (None, false) => format!("{}: ?", mailbox.name),
+    }
+}
+
 /// Многострочный текстовый отчёт для `--once` и журнала.
 pub fn report(s: &crate::state::Snapshot) -> String {
     let mut out = format!(
@@ -112,6 +122,15 @@ pub fn report(s: &crate::state::Snapshot) -> String {
     );
     if let Some(err) = &s.error {
         out.push_str(&format!("\n  Ошибка:       {err}"));
+    }
+    if !s.mailboxes.is_empty() {
+        out.push_str("\n  Почта:");
+        for mailbox in &s.mailboxes {
+            out.push_str(&format!("\n    {}", mail_line(mailbox)));
+            if let Some(err) = &mailbox.error {
+                out.push_str(&format!(" ({err})"));
+            }
+        }
     }
     out
 }
@@ -145,8 +164,14 @@ mod tests {
     fn plural_is_correct() {
         assert_eq!(plural_ru(1, "запрос", "запроса", "запросов"), "1 запрос");
         assert_eq!(plural_ru(2, "запрос", "запроса", "запросов"), "2 запроса");
-        assert_eq!(plural_ru(204, "запрос", "запроса", "запросов"), "204 запроса");
-        assert_eq!(plural_ru(11, "запрос", "запроса", "запросов"), "11 запросов");
+        assert_eq!(
+            plural_ru(204, "запрос", "запроса", "запросов"),
+            "204 запроса"
+        );
+        assert_eq!(
+            plural_ru(11, "запрос", "запроса", "запросов"),
+            "11 запросов"
+        );
         assert_eq!(plural_ru(0, "запрос", "запроса", "запросов"), "0 запросов");
     }
 
@@ -187,10 +212,54 @@ mod tests {
         let text = report(&s);
         assert!(text.contains("Сегодня:      9,88 ₽ ($0,1095)"), "{text}");
         assert!(text.contains("204 запроса · 54,0M токенов"), "{text}");
-        assert!(text.contains("Курс оплаты:  90,22 ₽/$ (+12% к ЦБ)"), "{text}");
-        assert!(text.contains("Курс ЦБ:      80,5573 (31.10.2026)"), "{text}");
+        assert!(
+            text.contains("Курс оплаты:  90,22 ₽/$ (+12% к ЦБ)"),
+            "{text}"
+        );
+        assert!(
+            text.contains("Курс ЦБ:      80,5573 (31.10.2026)"),
+            "{text}"
+        );
         assert!(text.contains("Состояние:    норма"), "{text}");
         assert!(!text.contains("Ошибка"), "{text}");
+    }
+
+    #[test]
+    fn mail_lines_show_counts_and_errors() {
+        use crate::state::MailboxCount;
+        let ok = MailboxCount {
+            name: "me@mail.ru".into(),
+            unread: Some(3),
+            error: None,
+            url: None,
+        };
+        assert_eq!(mail_line(&ok), "me@mail.ru: 3");
+
+        let stale = MailboxCount {
+            name: "Работа".into(),
+            unread: Some(12),
+            error: Some("таймаут".into()),
+            url: None,
+        };
+        assert_eq!(mail_line(&stale), "Работа: 12 · ошибка");
+
+        let failed = MailboxCount {
+            name: "me@yandex.ru".into(),
+            unread: None,
+            error: Some("неверный пароль".into()),
+            url: None,
+        };
+        assert_eq!(mail_line(&failed), "me@yandex.ru: — · ошибка");
+    }
+
+    #[test]
+    fn report_lists_every_mailbox() {
+        let s = crate::state::Snapshot::demo_with(crate::state::Status::Ok, None, 12.0);
+        let text = report(&s);
+        assert!(text.contains("Почта:"), "{text}");
+        assert!(text.contains("me@mail.ru: 3"), "{text}");
+        assert!(text.contains("me@yandex.ru: 12"), "{text}");
+        assert!(text.contains("Архив: 0"), "{text}");
     }
 
     #[test]

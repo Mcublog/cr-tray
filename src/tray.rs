@@ -69,15 +69,21 @@ impl Tray for CrTray {
             format::cbr_rate(s.rate, &s.rate_date),
             s.updated,
         );
+        if !s.mailboxes.is_empty() {
+            description.push_str("<br/><br/><b>Почта</b>");
+            for mailbox in &s.mailboxes {
+                description.push_str(&format!("<br/>{}", format::mail_line(mailbox)));
+                if let Some(err) = &mailbox.error {
+                    description.push_str(&format!(" ({err})"));
+                }
+            }
+        }
         if let Some(err) = &s.error {
             description.push_str(&format!("<br/><b>Ошибка:</b> {err}"));
         }
 
         ToolTip {
-            title: format!(
-                "CloseRouter · {} ₽ за сегодня",
-                format::rub(s.spent_rub)
-            ),
+            title: format!("CloseRouter · {} ₽ за сегодня", format::rub(s.spent_rub)),
             description,
             ..Default::default()
         }
@@ -86,11 +92,21 @@ impl Tray for CrTray {
     fn menu(&self) -> Vec<MenuItem<Self>> {
         let s = &self.snap;
         let mut items = vec![
-            info(format!(
-                "Сегодня: {} ₽ ({})",
-                format::rub(s.spent_rub),
-                format::usd(s.spent_usd)
-            )),
+            StandardItem {
+                label: format!(
+                    "Сегодня: {} ₽ ({})",
+                    format::rub(s.spent_rub),
+                    format::usd(s.spent_usd)
+                ),
+                activate: Box::new(|_: &mut CrTray| {
+                    let _ = Command::new("xdg-open")
+                        .arg("https://closerouter.dev/usage")
+                        .spawn();
+                }),
+                ..Default::default()
+            }
+            .into(),
+            // Запросы и токены скрыты из меню: остаются в тултипе.
             info(format!(
                 "{} · {}",
                 format::plural_ru(s.requests, "запрос", "запроса", "запросов"),
@@ -101,6 +117,7 @@ impl Tray for CrTray {
                 format::rub(s.balance_rub),
                 format::usd_short(s.balance_usd)
             )),
+            // Курсы скрыты из меню: остаются в тултипе и --once.
             info(format!(
                 "Курс оплаты: {}",
                 format::pay_rate(s.pay_rate, s.pay_markup)
@@ -110,30 +127,73 @@ impl Tray for CrTray {
             } else {
                 "Курс ЦБ: —".to_string()
             }),
-            info(format!("Обновлено: {} · {}", s.updated, s.status.label())),
-            MenuItem::Separator,
             StandardItem {
-                label: "Обновить".into(),
+                label: format!("Обновлено: {} · {}", s.updated, s.status.label()),
                 activate: Box::new(|tray: &mut CrTray| {
                     if let Some(tx) = &tray.wake {
-                        // Поток опроса проснётся сразу и заберёт свежие данные.
+                        // Ручное обновление: биллинг и почта опрашиваются сразу.
                         let _ = tx.send(Wake::Refresh);
                     }
                 }),
                 ..Default::default()
             }
             .into(),
-            StandardItem {
-                label: "Открыть дашборд".into(),
-                activate: Box::new(|_: &mut CrTray| {
-                    let _ = Command::new("xdg-open")
-                        .arg("https://closerouter.dev/usage")
-                        .spawn();
-                }),
-                ..Default::default()
+        ];
+
+        // items.push(MenuItem::Separator);
+        // items.push(
+        //     StandardItem {
+        //         label: "Обновить".into(),
+        //         activate: Box::new(|tray: &mut CrTray| {
+        //             if let Some(tx) = &tray.wake {
+        //                 // Поток опроса проснётся сразу и заберёт свежие данные.
+        //                 let _ = tx.send(Wake::Refresh);
+        //             }
+        //         }),
+        //         ..Default::default()
+        //     }
+        //     .into(),
+        // );
+        // items.push(
+        //     StandardItem {
+        //         label: "Открыть дашборд".into(),
+        //         activate: Box::new(|_: &mut CrTray| {
+        //             let _ = Command::new("xdg-open")
+        //                 .arg("https://closerouter.dev/usage")
+        //                 .spawn();
+        //         }),
+        //         ..Default::default()
+        //     }
+        //     .into(),
+        // );
+
+        if !s.mailboxes.is_empty() {
+            items.push(MenuItem::Separator);
+            // Заголовок «Почта» скрыт, строки ящиков остаются.
+            // items.push(info("Почта".to_string()));
+            for mailbox in &s.mailboxes {
+                let label = format::mail_line(mailbox);
+                match &mailbox.url {
+                    Some(url) => {
+                        let url = url.clone();
+                        items.push(
+                            StandardItem {
+                                label,
+                                activate: Box::new(move |_: &mut CrTray| {
+                                    let _ = Command::new("xdg-open").arg(&url).spawn();
+                                }),
+                                ..Default::default()
+                            }
+                            .into(),
+                        );
+                    }
+                    None => items.push(info(label)),
+                }
             }
-            .into(),
-            MenuItem::Separator,
+        }
+
+        items.push(MenuItem::Separator);
+        items.push(
             StandardItem {
                 label: "Выход".into(),
                 disposition: Disposition::Informative,
@@ -152,7 +212,7 @@ impl Tray for CrTray {
                 ..Default::default()
             }
             .into(),
-        ];
+        );
         items.shrink_to_fit();
         items
     }
