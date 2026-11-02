@@ -5,6 +5,7 @@ mod cbr;
 mod clock;
 mod format;
 mod icon;
+mod links;
 mod lock;
 mod mail;
 mod poll;
@@ -32,6 +33,7 @@ cr-tray — расход CloseRouter за сегодня в трее KDE Plasma
   cr-tray [--once] [--api-key KEY] [--timezone TZ] [--interval SEC]
           [--pay-rate RUB] [--pay-markup PCT]
           [--mail-config PATH] [--mail-interval SEC] [--no-mail]
+          [--links-config PATH]
   cr-tray --demo [--demo-state ok|warn|error] [--demo-cycle] [--dump-icons DIR]
 
 Флаги:
@@ -46,6 +48,7 @@ cr-tray — расход CloseRouter за сегодня в трее KDE Plasma
   --mail-config <PATH>      конфиг почты (по умолчанию ~/.config/cr-tray/mail.json)
   --mail-interval <SEC>     период опроса IMAP, секунды (по умолчанию 300)
   --no-mail                 не опрашивать почту
+  --links-config <PATH>     конфиг ссылок в меню (по умолчанию ~/.config/cr-tray/links.json)
   --demo             фейковые данные, без сети и ключа
   --demo-state <S>   фиксированное состояние иконки: ok, warn, error
   --demo-cycle       переключать состояния каждые 5 секунд
@@ -59,6 +62,7 @@ cr-tray — расход CloseRouter за сегодня в трее KDE Plasma
   CR_WARN_BALANCE_RUB — порог «мало средств», ₽
   CR_MAIL_CONFIG — путь к конфигу почты
   CR_MAIL_INTERVAL — период опроса IMAP, секунды
+  CR_LINKS_CONFIG — путь к конфигу ссылок в меню
 
 Ключ также читается из ~/.config/cr-tray/api_key.
 Почта — из ~/.config/cr-tray/mail.json (см. README).
@@ -87,6 +91,8 @@ struct Args {
     mail_interval: Option<u64>,
     /// Полностью выключить почту.
     no_mail: bool,
+    /// Явный путь к конфигу ссылок в меню.
+    links_config: Option<PathBuf>,
 }
 
 /// Минимальный период опроса: чаще незачем, API можно и притормозить.
@@ -129,6 +135,7 @@ fn parse_args() -> Result<Args, String> {
             .ok()
             .and_then(|v| v.parse().ok()),
         no_mail: false,
+        links_config: std::env::var_os("CR_LINKS_CONFIG").map(PathBuf::from),
     };
 
     let mut it = std::env::args().skip(1);
@@ -199,6 +206,9 @@ fn parse_args() -> Result<Args, String> {
                 })?);
             }
             "--no-mail" => args.no_mail = true,
+            "--links-config" => {
+                args.links_config = Some(PathBuf::from(value("--links-config")?));
+            }
             "-h" | "--help" => {
                 print!("{HELP}");
                 std::process::exit(0);
@@ -302,6 +312,16 @@ fn main() -> ExitCode {
         };
     }
 
+    // Ссылки нужны только самому меню: `--once` и `--dump-icons` до сюда
+    // не доходят, а битый конфиг не должен мешать проверке данных.
+    let links = match links::load(args.links_config.as_deref()) {
+        Ok(links) => links,
+        Err(e) => {
+            eprintln!("cr-tray: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
     // Один экземпляр трея на сессию: второй только мешал бы.
     let _instance = match lock::InstanceLock::acquire() {
         Ok(l) => l,
@@ -311,7 +331,7 @@ fn main() -> ExitCode {
         }
     };
 
-    let mut tray = CrTray::new(snap);
+    let mut tray = CrTray::new(snap, links);
     let (wake_tx, wake_rx) = mpsc::channel();
     tray.wake = Some(wake_tx);
 

@@ -6,18 +6,25 @@ use std::sync::mpsc::Sender;
 use ksni::menu::{Disposition, StandardItem};
 use ksni::{Category, Icon, MenuItem, ToolTip, Tray};
 
+use crate::links::Link;
 use crate::poll::Wake;
 use crate::{format, icon, state::Snapshot};
 
 pub struct CrTray {
     pub snap: Snapshot,
+    /// Пользовательские ссылки из конфига; пусто — пунктов в меню нет.
+    pub links: Vec<Link>,
     /// Будит поток опроса: «Обновить» и «Выход» в меню.
     pub wake: Option<Sender<Wake>>,
 }
 
 impl CrTray {
-    pub fn new(snap: Snapshot) -> Self {
-        Self { snap, wake: None }
+    pub fn new(snap: Snapshot, links: Vec<Link>) -> Self {
+        Self {
+            snap,
+            links,
+            wake: None,
+        }
     }
 }
 
@@ -189,6 +196,24 @@ impl Tray for CrTray {
                     }
                     None => items.push(info(label)),
                 }
+            }
+        }
+
+        // Пользовательские ссылки: только имена, без общего заголовка.
+        if !self.links.is_empty() {
+            items.push(MenuItem::Separator);
+            for link in &self.links {
+                let url = link.url.clone();
+                items.push(
+                    StandardItem {
+                        label: link.name.clone(),
+                        activate: Box::new(move |_: &mut CrTray| {
+                            let _ = Command::new("xdg-open").arg(&url).spawn();
+                        }),
+                        ..Default::default()
+                    }
+                    .into(),
+                );
             }
         }
 
